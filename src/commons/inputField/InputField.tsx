@@ -1,282 +1,230 @@
+import React, { forwardRef, useState } from 'react';
 import {
     Image,
     ImageSourcePropType,
     KeyboardType,
-    LayoutChangeEvent,
+    Platform,
     ReturnKeyTypeOptions,
     StyleSheet,
     Text,
-    TextInput as RNTextInput,
     TextInputSubmitEditingEvent,
     TextStyle,
-    TouchableOpacity,
     View,
     ViewStyle,
 } from 'react-native';
-import React, { useEffect, useState } from 'react';
 import { TextInput as PaperTextInput } from 'react-native-paper';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
-import {
-    Canvas,
-    Fill,
-    RoundedRect,
-    Group,
-    Skia,
-    Shader,
-    LinearGradient,
-    BackdropBlur,
-    vec,
-} from '@shopify/react-native-skia';
-import { ACTIVE_OPACITY, COLORS, FONT, hp, wp } from '../../enums/StyleGuide';
+import { COLORS, FONT, hp, wp } from '../../enums/StyleGuide';
 
 type IconSource = ImageSourcePropType | React.ReactElement;
 
 interface Props {
-    mainStyle?: ViewStyle;
-    placeHolder: string;
+    containerStyle?: ViewStyle;
     inputFieldStyle?: TextStyle;
     iconButtonStyle?: ViewStyle;
+    placeHolder: string;
+    hint?: string;
+    label?: string;
+    labelStyle?: TextStyle;
+    required?: boolean;
     source?: IconSource;
     iconPress?: () => void;
+    leftSource?: IconSource;
+    leftIconPress?: () => void;
     keyBoardType?: KeyboardType;
     editable?: boolean;
     secureTextEntry?: boolean;
     onChangeText?: (text: string) => void;
+    onBlur?: () => void;
     value?: string;
     error?: string;
     showError?: boolean;
+    helperText?: string;
     multiLine?: boolean;
+    numberOfLines?: number;
     autoFocus?: boolean;
     returnKeyType?: ReturnKeyTypeOptions;
     selectTextOnFocus?: boolean;
     maxLength?: number;
     onSubEdit?: (e: TextInputSubmitEditingEvent) => void;
-    ref?: React.RefObject<RNTextInput>;
+    testID?: string;
+    autoComplete?: 'email' | 'password' | 'name' | 'tel' | 'off' | 'username';
+    disableAutoPasswordToggle?: boolean;
 }
 
-const DEFAULT_HEIGHT = 56;
-const RADIUS = 18;
-const RING_DURATION = 220;
+const InputField = forwardRef<any, Props>(
+    (
+        {
+            containerStyle,
+            inputFieldStyle,
+            iconButtonStyle,
+            placeHolder,
+            hint,
+            label,
+            labelStyle,
+            required = false,
+            source,
+            iconPress,
+            leftSource,
+            leftIconPress,
+            keyBoardType,
+            editable = true,
+            secureTextEntry = false,
+            onChangeText,
+            onBlur,
+            value,
+            error,
+            showError = false,
+            helperText,
+            multiLine = false,
+            numberOfLines,
+            autoFocus = false,
+            returnKeyType,
+            selectTextOnFocus,
+            maxLength,
+            onSubEdit,
+            testID,
+            autoComplete,
+            disableAutoPasswordToggle = false,
+        },
+        ref,
+    ) => {
+        const [isFocused, setIsFocused] = useState(false);
+        const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+        const showErrorVisuals = showError && !!error;
+        const hasCustomRightIcon = !!source;
+        const hasCustomLeftIcon = !!leftSource;
+        const showPasswordToggle =
+            secureTextEntry && !hasCustomRightIcon && !disableAutoPasswordToggle;
 
-// ---------- Liquid Glass Shader (light, frosted) ----------
-const glassSource = Skia.RuntimeEffect.Make(`
-uniform shader image;
-uniform float2 rectSize;
-uniform float radius;
-uniform float tintStrength;
+        const renderIcon = (
+            iconSource: IconSource,
+            onPress?: () => void,
+            style?: ViewStyle,
+        ) => (
+            <PaperTextInput.Icon
+                icon={() =>
+                    React.isValidElement(iconSource) ? (
+                        iconSource
+                    ) : (
+                        <Image
+                            source={iconSource as ImageSourcePropType}
+                            style={styles.iconStyle}
+                            resizeMode="contain"
+                        />
+                    )
+                }
+                onPress={onPress}
+                style={style}
+                forceTextInputFocus={false}
+            />
+        );
 
-half4 main(float2 pos) {
-  float2 center = rectSize * 0.5;
-  float2 local = pos - center;
+        const renderPasswordToggle = () => (
+            <PaperTextInput.Icon
+                icon={isPasswordVisible ? 'eye-off-outline' : 'eye-outline'}
+                color={COLORS.grey3}
+                onPress={() => setIsPasswordVisible(prev => !prev)}
+                forceTextInputFocus={false}
+            />
+        );
 
-  float2 halfSize = center - float2(radius, radius);
-  float2 q = abs(local) - halfSize;
-  float distToEdge = -(length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius);
-
-  float bulge = smoothstep(0.0, radius * 1.6, distToEdge);
-  float2 dir = normalize(local + 0.0001);
-  float2 displaced = pos - dir * (1.0 - bulge) * 4.0;
-
-  half4 col = image.eval(displaced);
-  col.rgb = mix(col.rgb, half3(1.0, 1.0, 1.0), tintStrength);
-
-  float edge = 1.0 - smoothstep(0.0, radius * 0.85, distToEdge);
-  col.rgb += edge * 0.12;
-
-  return col;
-}
-`)!;
-
-const InputField = ({
-    mainStyle,
-    placeHolder,
-    inputFieldStyle,
-    iconButtonStyle,
-    source,
-    iconPress,
-    keyBoardType,
-    editable = true,
-    secureTextEntry = false,
-    onChangeText,
-    value,
-    error,
-    showError = false,
-    multiLine = false,
-    autoFocus = false,
-    returnKeyType,
-    selectTextOnFocus,
-    maxLength,
-    onSubEdit,
-    ref,
-}: Props) => {
-    const hasIcon = !!source;
-    const showErrorVisuals = showError && !!error;
-
-    const [isFocused, setIsFocused] = useState(false);
-    const [width, setWidth] = useState(0);
-    const hasSize = width > 0;
-
-    const focusOpacity = useSharedValue(0);
-    const errorOpacity = useSharedValue(0);
-
-    useEffect(() => {
-        focusOpacity.value = withTiming(isFocused ? 1 : 0, { duration: RING_DURATION });
-    }, [isFocused]);
-
-    useEffect(() => {
-        errorOpacity.value = withTiming(showErrorVisuals ? 1 : 0, { duration: RING_DURATION });
-    }, [showErrorVisuals]);
-
-    const focusRingStyle = useAnimatedStyle(() => ({ opacity: focusOpacity.value }));
-    const errorRingStyle = useAnimatedStyle(() => ({ opacity: errorOpacity.value }));
-
-    const onFieldLayout = (e: LayoutChangeEvent) => {
-        setWidth(e.nativeEvent.layout.width);
-    };
-
-    const uniforms = { rectSize: [width, DEFAULT_HEIGHT], radius: RADIUS, tintStrength: 0.5 };
-
-    return (
-        <View style={styles.wrapper}>
-            <View onLayout={onFieldLayout} style={[styles.mainStyle, mainStyle]}>
-                {hasSize && (
-                    <Canvas style={StyleSheet.absoluteFill}>
-                        <Group
-                            clip={{
-                                rect: { x: 0, y: 0, width, height: DEFAULT_HEIGHT },
-                                rx: RADIUS,
-                                ry: RADIUS,
-                            }}
-                        >
-                            <Fill>
-                                <Shader source={glassSource} uniforms={uniforms}>
-                                    <BackdropBlur blur={18} />
-                                </Shader>
-                            </Fill>
-
-                            <RoundedRect
-                                x={0}
-                                y={0}
-                                width={width}
-                                height={DEFAULT_HEIGHT}
-                                r={RADIUS}
-                                color="rgba(255,255,255,0.32)"
-                            />
-
-                            <RoundedRect
-                                x={0}
-                                y={0}
-                                width={width}
-                                height={DEFAULT_HEIGHT * 0.55}
-                                r={RADIUS}
-                            >
-                                <LinearGradient
-                                    start={vec(0, 0)}
-                                    end={vec(0, DEFAULT_HEIGHT * 0.55)}
-                                    colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0)']}
-                                />
-                            </RoundedRect>
-
-                            <RoundedRect
-                                x={0.5}
-                                y={0.5}
-                                width={width - 1}
-                                height={DEFAULT_HEIGHT - 1}
-                                r={RADIUS}
-                                style="stroke"
-                                strokeWidth={1}
-                                color="rgba(255,255,255,0.55)"
-                            />
-                        </Group>
-                    </Canvas>
-                )}
-
-                {hasSize && (
-                    <Animated.View style={[StyleSheet.absoluteFill, focusRingStyle]} pointerEvents="none">
-                        <Canvas style={StyleSheet.absoluteFill}>
-                            <RoundedRect
-                                x={1}
-                                y={1}
-                                width={width - 2}
-                                height={DEFAULT_HEIGHT - 2}
-                                r={RADIUS}
-                                style="stroke"
-                                strokeWidth={1.5}
-                                color={COLORS.darkBlue}
-                            />
-                        </Canvas>
-                    </Animated.View>
-                )}
-
-                {hasSize && (
-                    <Animated.View style={[StyleSheet.absoluteFill, errorRingStyle]} pointerEvents="none">
-                        <Canvas style={StyleSheet.absoluteFill}>
-                            <RoundedRect
-                                x={1}
-                                y={1}
-                                width={width - 2}
-                                height={DEFAULT_HEIGHT - 2}
-                                r={RADIUS}
-                                style="stroke"
-                                strokeWidth={1.5}
-                                color={COLORS.red}
-                            />
-                        </Canvas>
-                    </Animated.View>
+        return (
+            <View style={[styles.wrapper, containerStyle]}>
+                {label && (
+                    <Text style={[styles.topLabelStyle, labelStyle]}>
+                        {label}
+                        {required && <Text style={{ color: COLORS.red }}> *</Text>}
+                    </Text>
                 )}
 
                 <PaperTextInput
                     ref={ref}
+                    testID={testID}
                     mode="outlined"
-                    placeholder={placeHolder}
-                    placeholderTextColor={COLORS.grey3}
-                    underlineColor="transparent"
-                    activeUnderlineColor="transparent"
-                    selectionColor={COLORS.goldLight}
-                    cursorColor={COLORS.darkBlue}
+                    label={placeHolder}
+                    placeholder={hint}
                     autoFocus={autoFocus}
                     returnKeyType={returnKeyType}
                     keyboardType={keyBoardType}
                     editable={editable}
                     value={value}
                     multiline={multiLine}
+                    numberOfLines={multiLine ? numberOfLines ?? 4 : 1}
                     onChangeText={onChangeText}
-                    secureTextEntry={secureTextEntry}
-                    onFocus={() => setIsFocused(true)}
-                    onBlur={() => setIsFocused(false)}
+                    secureTextEntry={secureTextEntry && !isPasswordVisible}
+                    selectionColor={COLORS.black}
+                    cursorColor={COLORS.black}
                     autoCorrect={false}
-                    autoCapitalize="words"
+                    autoCapitalize={keyBoardType === 'email-address' ? 'none' : 'words'}
+                    autoComplete={autoComplete}
+                    textContentType={
+                        secureTextEntry
+                            ? 'password'
+                            : keyBoardType === 'email-address'
+                                ? 'emailAddress'
+                                : undefined
+                    }
                     selectTextOnFocus={selectTextOnFocus}
                     maxLength={maxLength}
                     onSubmitEditing={onSubEdit}
+                    onFocus={() => setIsFocused(true)}
+                    onBlur={() => {
+                        setIsFocused(false);
+                        onBlur?.();
+                    }}
+                    error={showErrorVisuals}
+                    dense
                     style={[
                         styles.inputFieldStyle,
+                        multiLine && styles.multilineFieldStyle,
+                        !editable && styles.disabledFieldStyle,
                         inputFieldStyle,
-                        { width: hasIcon ? '85%' : '100%' },
+
                     ]}
+                    outlineStyle={styles.outlineStyle}
                     contentStyle={styles.contentStyle}
-                    theme={{ colors: { background: 'transparent', onSurfaceVariant: COLORS.grey3 } }}
+                    textColor={editable ? COLORS.black : COLORS.grey3}
+                    placeholderTextColor={COLORS.grey3}
+                    outlineColor={isFocused ? COLORS.black : COLORS.grey2}
+                    activeOutlineColor={COLORS.black}
+                    theme={{
+                        roundness: 10,
+                        colors: {
+                            error: COLORS.black,
+                            onSurfaceVariant: isFocused ? COLORS.black : COLORS.grey3,
+                            background: editable ? COLORS.white : '#F4F4F5',
+                        },
+                        fonts: {
+                            bodyLarge: { fontFamily: FONT.medium },
+                            bodyMedium: { fontFamily: FONT.medium },
+                            labelLarge: { fontFamily: FONT.medium },
+                        },
+                    }}
+                    left={
+                        hasCustomLeftIcon
+                            ? renderIcon(leftSource as IconSource, leftIconPress, iconButtonStyle)
+                            : undefined
+                    }
+                    right={
+                        showPasswordToggle
+                            ? renderPasswordToggle()
+                            : hasCustomRightIcon
+                                ? renderIcon(source as IconSource, iconPress, iconButtonStyle)
+                                : undefined
+                    }
                 />
 
-                {hasIcon && (
-                    <TouchableOpacity
-                        activeOpacity={ACTIVE_OPACITY}
-                        onPress={iconPress}
-                        style={[styles.iconButtonStyle, iconButtonStyle]}
-                    >
-                        {React.isValidElement(source) ? (
-                            source
-                        ) : (
-                            <Image source={source as ImageSourcePropType} style={styles.iconStyle} />
-                        )}
-                    </TouchableOpacity>
-                )}
+                {showErrorVisuals ? (
+                    <Text style={styles.errorText}>{error}</Text>
+                ) : helperText ? (
+                    <Text style={styles.helperText}>{helperText}</Text>
+                ) : null}
             </View>
+        );
+    },
+);
 
-            {showErrorVisuals && <Text style={styles.errorText}>{error}</Text>}
-        </View>
-    );
-};
+InputField.displayName = 'InputField';
 
 export default InputField;
 
@@ -284,40 +232,50 @@ const styles = StyleSheet.create({
     wrapper: {
         width: '100%',
     },
-    mainStyle: {
-        width: '100%',
-        height: DEFAULT_HEIGHT,
-        borderRadius: RADIUS,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden',
-    },
     inputFieldStyle: {
-        backgroundColor: 'transparent',
-        color: COLORS.black,
-        fontFamily: FONT.regular,
+        width: '100%',
+        backgroundColor: COLORS.white,
+        fontFamily: FONT.medium,
+        fontSize: 15,
+        paddingTop: Platform.OS === 'ios' ? hp('0.2%') : 0,
+    },
+    multilineFieldStyle: {
+        minHeight: hp('12%'),
+        textAlignVertical: 'top',
+    },
+    disabledFieldStyle: {
+        backgroundColor: '#F4F4F5',
+    },
+    outlineStyle: {
+        borderRadius: 10,
+        borderWidth: 1,
     },
     contentStyle: {
-        backgroundColor: 'transparent',
-        paddingLeft: wp('4%'),
-    },
-    iconButtonStyle: {
-        width: '15%',
-        padding: 5,
-        alignItems: 'center',
-        justifyContent: 'center',
+        fontFamily: FONT.medium,
+        color: COLORS.black,
     },
     iconStyle: {
-        height: 13,
-        width: 13,
+        height: 18,
+        width: 18,
     },
     errorText: {
         color: COLORS.red,
         fontSize: 12,
-        position: 'absolute',
-        right: wp('3%'),
-        bottom: -hp('2%'),
+        marginTop: hp('0.5%'),
+        alignSelf: 'flex-end',
         fontFamily: FONT.semiBold,
+    },
+    helperText: {
+        color: COLORS.grey3,
+        fontSize: 12,
+        marginTop: hp('0.5%'),
+        fontFamily: FONT.regular,
+    },
+    topLabelStyle: {
+        marginTop: hp('2%'),
+        fontSize: 14,
+        color: COLORS.black,
+        fontFamily: FONT.semiBold,
+        letterSpacing: 0.2,
     },
 });

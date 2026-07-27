@@ -4,5 +4,6 @@ export const IMAGES = {
     USER: require('../images/user.png'),
     WORK: require('../images/work.png'),
     STATUS: require('../images/status.png'),
+    GOOGLE: require('../images/google.png'),
     DOUBLE_TICK: require('../images/doubleTick.png'),
 }

@@ -1,9 +1,10 @@
-import { Pressable, StyleProp, StyleSheet, View, ViewStyle } from 'react-native'
+import { Image, ImageSourcePropType, ImageStyle, Pressable, StyleProp, StyleSheet, TextStyle, View, ViewStyle } from 'react-native'
 import React from 'react'
 import { Canvas, Fill, RoundedRect, Group, Skia, Shader, vec, LinearGradient } from '@shopify/react-native-skia'
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring } from 'react-native-reanimated'
 import AppText from '../appText'
 import { COLORS, FONT, WIDTH } from '../../enums/StyleGuide'
+import { IMAGES } from '../../assets/images'
 
 const glassSource = Skia.RuntimeEffect.Make(`
 uniform shader image;
@@ -42,12 +43,18 @@ const CustomButton = ({
     title,
     onPress,
     buttonStyle,
-    disabled = false
+    disabled = false,
+    buttonTextStyle,
+    buttonIconStyle,
+    iconSource
 }: {
     title: string
     onPress?: () => void
     buttonStyle?: StyleProp<ViewStyle>
-    disabled?: boolean
+    disabled?: boolean,
+    buttonTextStyle?: StyleProp<TextStyle>,
+    buttonIconStyle?: StyleProp<ImageStyle>,
+    iconSource?: ImageSourcePropType
 }) => {
     const scale = useSharedValue(1)
 
@@ -112,8 +119,13 @@ const CustomButton = ({
                             />
                         </Group>
                     </Canvas>
+
                     <View style={styles.textOverlay} pointerEvents="none">
-                        <AppText baseSize={17} style={styles.buttonText} text={title} />
+                        {
+                            iconSource &&
+                            <Image source={iconSource} style={[styles.buttonIconStyle, buttonIconStyle]} />
+                        }
+                        <AppText baseSize={17} style={[styles.buttonText, buttonTextStyle]} text={title} />
                     </View>
                 </Pressable>
             </Animated.View>
@@ -132,6 +144,18 @@ const styles = StyleSheet.create({
         height: BUTTON_H,
         justifyContent: 'center',
         alignItems: 'center',
+        flexDirection: 'row',
+        gap: 10
     },
-    buttonText: { color: COLORS.white, fontSize: 17, fontFamily: FONT.semiBold, letterSpacing: 0.2 },
+    buttonText: {
+        color: COLORS.white,
+        fontSize: 17,
+        fontFamily: FONT.semiBold,
+        letterSpacing: 0.2,
+        lineHeight: 20
+    },
+    buttonIconStyle: {
+        height: 20,
+        width: 20,
+    }
 })
